@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            Int       @id @default(autoincrement())
+  phone         String    @unique
+  name          String
+  college       String
+  className     String
+  checkInCount  Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  checkIns      CheckIn[]
+}
+
+model CheckIn {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  imageUrl   String
+  thoughts   String
+  status     String   @default("PENDING")
+  isFlagged  Boolean  @default(false)
+  exifTime   DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
