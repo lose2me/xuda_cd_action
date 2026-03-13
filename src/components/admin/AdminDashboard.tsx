@@ -24,7 +24,6 @@ interface Stats {
   todayCheckins: number;
   pendingCount: number;
   approvedCount: number;
-  flaggedCount: number;
   rankings: Array<{
     id: number;
     phone: string;
@@ -41,7 +40,6 @@ interface CheckInRecord {
   thoughts: string;
   status: string;
   isFlagged: boolean;
-  exifTime: string | null;
   createdAt: string;
   user: {
     phone: string;
@@ -234,7 +232,7 @@ export default function AdminDashboard({ lang }: { lang: Lang }) {
             <DialogTitle>{t.view_photo}</DialogTitle>
           </DialogHeader>
           {photoDialogUrl && (
-            <img src={photoDialogUrl.replace(/^\/uploads\//, '/api/image/')} alt="Check-in" className="w-full h-auto rounded" />
+            <img src={photoDialogUrl.replace(/^\/uploads\//, '/api/image/')} alt="Check-in" className="w-full max-h-[70vh] object-contain rounded" />
           )}
         </DialogContent>
       </Dialog>

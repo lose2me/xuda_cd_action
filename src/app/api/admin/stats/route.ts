@@ -11,8 +11,9 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const nowInChina = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    nowInChina.setHours(0, 0, 0, 0);
+    const today = nowInChina;
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 

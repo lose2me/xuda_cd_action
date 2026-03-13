@@ -23,11 +23,13 @@ function escapeXml(str: string): string {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+const FONT_PATH = path.join(process.cwd(), 'assets/fonts/FangZhengHeiTi-GBK-1.ttf');
+
 interface WatermarkInfo {
   uploadTime: string;
-  phone: string;
   name: string;
   college: string;
+  className: string;
 }
 
 async function addWatermark(inputBuffer: Buffer, info: WatermarkInfo): Promise<Buffer> {
@@ -37,46 +39,41 @@ async function addWatermark(inputBuffer: Buffer, info: WatermarkInfo): Promise<B
   const height = metadata.height || 600;
 
   const fontSize = Math.max(14, Math.floor(width / 35));
-  const lineHeight = Math.floor(fontSize * 1.4);
   const padding = Math.floor(fontSize * 0.6);
 
-  const lines = [
-    escapeXml(info.uploadTime),
-    escapeXml(`${info.phone} ${info.name}`),
-    escapeXml(info.college),
-  ];
+  const textLines = [info.uploadTime, `${info.college} ${info.className}`, info.name].join('\n');
 
-  const blockHeight = lineHeight * lines.length + padding * 2;
-  const maxLineChars = Math.max(...lines.map(l => l.length));
-  const blockWidth = Math.floor(fontSize * maxLineChars * 0.55 + padding * 2);
+  // Render text using Pango + fontfile (cross-platform reliable)
+  const textImage = await sharp({
+    text: {
+      text: `<span foreground="white" font_desc="FangZhengHeiTi bold ${fontSize}">${escapeXml(textLines)}</span>`,
+      fontfile: FONT_PATH,
+      rgba: true,
+      align: 'right',
+    },
+  }).png().toBuffer();
 
-  const svgText = `
-    <svg width="${width}" height="${height}">
-      <style>
-        .wm {
-          fill: white;
-          font-size: ${fontSize}px;
-          font-family: Arial, Helvetica, sans-serif;
-          font-weight: bold;
-        }
-        .wm-bg {
-          fill: rgba(0,0,0,0.5);
-        }
-      </style>
-      <rect x="${width - blockWidth}" y="${height - blockHeight}"
-            width="${blockWidth}" height="${blockHeight}"
-            class="wm-bg" rx="0"/>
-      ${lines.map((line, i) =>
-        `<text x="${width - padding}" y="${height - blockHeight + padding + lineHeight * (i + 1) - Math.floor(fontSize * 0.3)}"
-               text-anchor="end" class="wm">${line}</text>`
-      ).join('\n')}
-    </svg>`;
+  const textMeta = await sharp(textImage).metadata();
+  const textWidth = textMeta.width || 200;
+  const textHeight = textMeta.height || 100;
+
+  const bgWidth = textWidth + padding * 2;
+  const bgHeight = textHeight + padding * 2;
+
+  // Use SVG for semi-transparent background (reliable alpha)
+  const bgSvg = `<svg width="${bgWidth}" height="${bgHeight}" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${bgWidth}" height="${bgHeight}" fill="black" fill-opacity="0.4"/>
+  </svg>`;
 
   return image
-    .composite([{
-      input: Buffer.from(svgText),
-      gravity: 'southeast',
-    }])
+    .composite([
+      { input: Buffer.from(bgSvg), gravity: 'southeast' },
+      {
+        input: textImage,
+        left: width - bgWidth + padding,
+        top: height - bgHeight + padding,
+      },
+    ])
     .jpeg({ quality: 85 })
     .toBuffer();
 }
@@ -114,9 +111,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check daily limit
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Check daily limit (China timezone)
+    const nowInChina = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    nowInChina.setHours(0, 0, 0, 0);
+    const today = nowInChina;
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
@@ -145,6 +143,13 @@ export async function POST(request: NextRequest) {
     // Read file buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
+
+    if (buffer.length === 0) {
+      return NextResponse.json(
+        { error: lang.student.photo_required },
+        { status: 400 }
+      );
+    }
 
     const isLiveCapture = formData.get('liveCapture') === 'true';
 
@@ -182,9 +187,10 @@ export async function POST(request: NextRequest) {
 
     const status = isFlagged ? 'PENDING' : 'APPROVED';
 
-    // Add watermark
+    // Add watermark (graceful: if watermark fails, use original image)
     const now = new Date();
     const uploadTimeStr = now.toLocaleString('zh-CN', {
+      timeZone: 'Asia/Shanghai',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -194,15 +200,19 @@ export async function POST(request: NextRequest) {
       hour12: false,
     });
 
-    const watermarkedBuffer = await addWatermark(buffer, {
-      uploadTime: uploadTimeStr,
-      phone,
-      name,
-      college,
-    });
+    let watermarkedBuffer: Buffer;
+    try {
+      watermarkedBuffer = await addWatermark(buffer, {
+        uploadTime: uploadTimeStr,
+        name,
+        college,
+        className,
+      });
+    } catch {
+      watermarkedBuffer = await sharp(buffer).jpeg({ quality: 85 }).toBuffer();
+    }
 
-    // Create or update user first to get current check-in count
-    // If user already exists, keep original name and college
+    // Create or update user
     const user = await prisma.user.upsert({
       where: { phone },
       update: {},

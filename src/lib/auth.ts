@@ -1,6 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
 import { getAdminSecret } from '@/lib/config';
-import { getLanguages } from '@/lib/languages';
 
 export function verifyAdmin(request: NextRequest): boolean {
   const auth = request.headers.get('authorization');
